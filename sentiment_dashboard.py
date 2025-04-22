@@ -1,54 +1,98 @@
-import streamlit as lit
+import streamlit as st
 import snscrape.modules.twitter as sntwitter
 import pandas as pd
 from textblob import TextBlob
 import matplotlib.pyplot as plt
+import praw
 
 st.set_page_config(page_title="Crypto Sentiment Tracker", layout="wide")
 
 st.title("Social Sentiment Scraper for Twitter Crypto")
 
-#Inputs for the sidebar
-query = st.text_input("Enter search term (e.g., $ETH, Solana, #Bitcoin):", "$ETH")
-tweet_limit = st.slider("Number of tweets", min_value=50, max_value=1000, step=50, value=200)
+#Sidebar Sources
+st.sidebar.title("Sources")
+source = st.sidebar.selectbox("Select source:", ["Twitter", "Reddit"])
 
-@st.cache.data
-def scrape_tweets(query, limit):
+#Sidebar Query
+query = st.sidebar.text_input("Enter search term (e.g., $ETH, Solana):", "$ETH")
+
+#Sidebar Limit
+limit = st.sidebar.slider("Number of posts", 10, 200, 50)
+
+#Reddit API setup
+REDDIT_CLIENT_ID = "your_client_id"
+REDDIT_CLIENT_SECRET = "your_client_secret"
+REDDIT_USER_AGENT = "your_user_agent"
+
+def analyze_sentiment(text):
+    analysis = TextBlob(text)
+    polarity = blob.sentiment.polarity
+    sentiment = "Positive" if polarity > 0 else "Negative" if polarity < 0 else "Neutral"
+    return sentiment
+
+#Tweet Scraper
+def scrape_tweets(query, limit=100):
     tweets = []
-    for i, tweet in enumerate(sntwitter.TwitterSearchScraper(query).get_items()):
-        if i >= limit:
-            break
-        tweets.append([tweet.date, tweet.content])
-    df = pd.DataFrame(tweets, columns=["Date", "Tweet"])
+    try:
+        for i, tweet in enumerate(sntwitter.TwitterSearchScraper(query).get_items()):
+            if i >= limit:
+                break
+            tweets.append({
+                "Date": tweet.date,
+                "User": tweet.user.username,
+                 "Content": tweet.content
+                 })
+    except Exception as e:
+        st.error(f"Error scraping tweets: {e}")
+    return pd.DataFrame(columns=["Date", "User", "Content"])
+
+    df = pd.DataFrame(tweets)
+    df["Sentiment"] = df["Content"].apply(analyze_sentiment)
     return df
 
-#Sentiment analysis function
-def get_sentiment(text):
-    return TextBlob(text).sentiment.polarity
+#Reddit post scraper
+def fetch_reddit_posts(query, limit=100):
+    try:
+        reddit = praw.Reddit(
+            client_id=REDDIT_CLIENT_ID,
+            client_secret=REDDIT_CLIENT_SECRET,
+            user_agent=REDDIT_USER_AGENT
+        )
+        subreddit = reddit.subreddit("all")
+        results = []
+
+        for post in subreddit.search(query, sort="relevance", time_filter="day, limit=limit"):
+            text = f"{post.title} {post.selftext}"
+            results.append({
+                "Date": pd.to_datetime(post.created_utc, unit='s'),
+                "User": post.author.name if post.author else "[deleted]",
+                "Content": text
+            })
+
+            df = pd.DataFrame
+            df["Sentiment"] = df["Content"].apply(analyze_sentiment)
+            return df
+    except Exception as e:
+        st.error(f"Error fetching Reddit posts: {e}")
+    return pd.DataFrame(columns=["Date", "User", "Content", "Sentiment"])
+
+#Charts n shit
+st.title("Social Sentiment Dashboard")
+st>write(f"Analyzing **{query}** from **{source}**...")
 
 if query:
-    st.info(f"Scraping tweets for '{query}'")
-    df = scrape_tweets(query, tweet_limit)
-    df["Sentiment"] = df["Tweet"].apply(get_sentiment)
-    df["Date"] = pd.to_datetime(df["Date"])
-
-    #Sample tweets
-    with st.expander("Sentiment Distribution"):
-        st.dataframe(df.head(10))
+    if source == "Twitter":
+        data = scrape_tweets(query, limit)
+    elif source == "Reddit":
+        data = fetch_reddit_posts(query, limit)
+    else:
+        data pd.DataFrame()
     
-    #Histogram!
-    st.subheader("Sentiment Distribution")
-    fig, ax = plt.subplots()
-    ax.hist(df["Sentiment"], bins=30, color="purple", alpha=0.7)
-    ax.set_xlabel("Polarity")
-    ax.set_ylabel("Frequency")
-    ax.set_title("Sentiment Histogram")
-    st.pyplot(fig)
-
-    #AVG over time
-    df.set_index("Date", inplace=True)
-    df_resampled = df["Sentiment"].resamepl("H").mean()
-    st.subheader("Sentiment Over Time")
-    st.line_chart(df_resampled)
-
-    st.success("Analysis complete!")
+    if not data.empty:
+        sentiment_counts = data["Sentiment"].value_counts()
+        st.bar_chart(sentiment_counts)
+        st.dataframe(data)
+    else:
+        st.info("No data available. Try a different keyword or reduce the limit.")
+else:
+    st.warning("Please enter a query.")
