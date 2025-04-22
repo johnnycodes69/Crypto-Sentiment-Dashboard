@@ -25,7 +25,7 @@ REDDIT_CLIENT_SECRET = "your_client_secret"
 REDDIT_USER_AGENT = "your_user_agent"
 
 def analyze_sentiment(text):
-    analysis = TextBlob(text)
+    blob = TextBlob(text)
     polarity = blob.sentiment.polarity
     sentiment = "Positive" if polarity > 0 else "Negative" if polarity < 0 else "Neutral"
     return sentiment
@@ -78,7 +78,7 @@ def fetch_reddit_posts(query, limit=100):
 
 #Charts n shit
 st.title("Social Sentiment Dashboard")
-st>write(f"Analyzing **{query}** from **{source}**...")
+st.write(f"Analyzing **{query}** from **{source}**...")
 
 if query:
     if source == "Twitter":
@@ -86,7 +86,7 @@ if query:
     elif source == "Reddit":
         data = fetch_reddit_posts(query, limit)
     else:
-        data pd.DataFrame()
+        data = pd.DataFrame()
     
     if not data.empty:
         sentiment_counts = data["Sentiment"].value_counts()
