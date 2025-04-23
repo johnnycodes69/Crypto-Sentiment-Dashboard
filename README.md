@@ -1,2 +1,2 @@
-# Twitter-Sentiment-Dashboard
+# Crypto-Sentiment-Dashboard
 A Python utility to scrape content, and visualize sentiment, on a given keyword (user defined). We now look at sources that are not Twitter, and these are selectable by the user, so the name may have been short sighted......
