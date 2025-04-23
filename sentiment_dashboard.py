@@ -5,10 +5,18 @@ from textblob import TextBlob
 import matplotlib.pyplot as plt
 import praw
 from datetime import datetime, timedelta
+import requests
 
 st.set_page_config(page_title="Crypto Sentiment Tracker", layout="wide")
 
-st.title("Social Sentiment Scraper for Twitter Crypto")
+st.title("Social Sentiment Scraper for Crypto")
+
+#Sidebar Sources
+st.sidebar.title("Select Data Source")
+source = st.sidebar.selectbox(
+    "Select source",
+     ["Twitter", "Reddit", "Crypto News"]
+     )
 
 #Sidebar date range - default last 7 days
 default_start = datetime.now() - timedelta(days=7)
@@ -19,15 +27,11 @@ start_date, end_date = st.date_input(
     value=(default_start, default_end)
 )
 
-#Sidebar Sources
-st.sidebar.title("Sources")
-source = st.sidebar.selectbox("Select source:", ["Twitter", "Reddit"])
-
 #Sidebar Query
-query = st.sidebar.text_input("Enter search term (e.g., $ETH, Solana):", "$ETH")
+query = st.sidebar.text_input("Enter search term (e.g., $ETH, Solana):", "Ethereum")
 
 #Sidebar Limit
-limit = st.sidebar.slider("Number of posts", 10, 10000, 10000)
+limit = st.sidebar.slider("Number of posts", 1, 100, 15)
 
 time_filter = st.selectbox(
     "Choose time range for posts",
@@ -35,12 +39,13 @@ time_filter = st.selectbox(
     index=1
 )
 
-
 #Reddit API setup
 REDDIT_CLIENT_ID = "e5iN6KT-_oBJW7Oz7ahoWQ"
 REDDIT_CLIENT_SECRET = "T_dP11nUaZTrY3rV9Ty8ZVdEyw-5fA"
 REDDIT_USER_AGENT = "streamlit sentiment app by u/Obvious-Donut-420"
 
+#Cryptopanic API setup
+CRYPTOPANIC_API_KEY = "161fd6bd2e6af6880bd3a7db2445f0bc1a617ab2"
 
 def analyze_sentiment(text):
     blob = TextBlob(text)
@@ -79,10 +84,7 @@ def scrape_tweets(query, limit=100, start_date=None, end_date=None):
 
     df["Sentiment"] = df["Content"].apply(analyze_sentiment)
     return df
-
-
-
-    
+  
 
 #Reddit post scraper
 def fetch_reddit_posts(query, limit=100, time_filter="day"):
@@ -114,6 +116,50 @@ def fetch_reddit_posts(query, limit=100, time_filter="day"):
         st.error(f"Error fetching Reddit posts: {e}")
         return pd.DataFrame(columns=["Date", "User", "Content", "Sentiment"])
 
+#Setup CryptoPanic scraper
+def fetch_crypto_news(query="", limit=100):
+    try:
+        url = "https://cryptopanic.com/api/v1/posts/"
+        params = {
+            "auth_token": CRYPTOPANIC_API_KEY,
+            "currencies": query.lower(),
+            "public": True
+        }
+
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        news = []
+        for item in data.get("results", [])[:limit]:
+            if item is None:
+                continue #SKIP null or empty results
+            title = item.get("title", "No title")
+            url = item.get("url", "")
+            domain = item.get("domain","CryptoPanic")
+            published = item.get("published_at","")
+
+            content = f"{title} - {url}" if url else title
+
+            news.append({
+                "Date": item["published_at"],
+                "User": item.get("domain", "Cryptopanic"),
+                "Content": item["title"] + " - " + (item.get("url") or "")
+            })
+
+        df = pd.DataFrame(news)
+        if df.empty:
+            return df
+        
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df.dropna(subset=["Date"], inplace=True)
+        df["Sentiment"] = df["Content"].apply(analyze_sentiment)
+        return df
+
+    except Exception as e:
+        st.error(f"Error fetching CryptoPanic news: {e}")
+        return pd.DataFrame(columns=["Date", "User", "Content", "Sentiment"])
+
 #Charts n shit
 st.title("Social Sentiment Dashboard")
 st.write(f"Analyzing **{query}** from **{source}**...")
@@ -123,6 +169,8 @@ if query:
         data = scrape_tweets(query, limit, start_date, end_date)
     elif source == "Reddit":
         data = fetch_reddit_posts(query, limit, time_filter)
+    elif source == "Crypto News":
+        data = fetch_crypto_news(query, limit)
     else:
         data = pd.DataFrame()
     
