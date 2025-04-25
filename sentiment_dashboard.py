@@ -1,185 +1,159 @@
 import streamlit as st
-import snscrape.modules.twitter as sntwitter
 import pandas as pd
-from textblob import TextBlob
-import matplotlib.pyplot as plt
-import praw
-from datetime import datetime, timedelta
 import requests
+from datetime import datetime, timedelta, timezone
+from textblob import TextBlob
+import altair as alt
 
-st.set_page_config(page_title="Crypto Sentiment Tracker", layout="wide")
 
-st.title("Social Sentiment Scraper for Crypto")
-
-#Sidebar Sources
+#Sidebar Config
 st.sidebar.title("Select Data Source")
 source = st.sidebar.selectbox(
     "Select source",
-     ["Twitter", "Reddit", "Crypto News"]
+     ["CryptoPanic", "Altcoin Buzz", "Coindesk"]
      )
+limit = st.sidebar.slider("Numebr of articles", min_value=1, max_value=50, value=10)
+apply_date_filter = st.sidebar.checkbox("Filter by date range")
 
-#Sidebar date range - default last 7 days
-default_start = datetime.now() - timedelta(days=7)
-default_end = datetime.today()
+start_date = end_date = None
+if apply_date_filter:
+    start_date = st.sidebar.date_input("Start Date", datetime.today() - timedelta(days=7))
+    end_date = st.sidebar.date_input("End Date", datetime.today())
 
-start_date, end_date = st.date_input(
-    "Select date range for tweets",
-    value=(default_start, default_end)
-)
-
-#Sidebar Query
-query = st.sidebar.text_input("Enter search term (e.g., $ETH, Solana):", "Ethereum")
-
-#Sidebar Limit
-limit = st.sidebar.slider("Number of posts", 1, 100, 15)
-
-time_filter = st.selectbox(
-    "Choose time range for posts",
-    ["hour", "day", "week", "month", "year","all"],
-    index=1
-)
-
-#Reddit API setup
-REDDIT_CLIENT_ID = "e5iN6KT-_oBJW7Oz7ahoWQ"
-REDDIT_CLIENT_SECRET = "T_dP11nUaZTrY3rV9Ty8ZVdEyw-5fA"
-REDDIT_USER_AGENT = "streamlit sentiment app by u/Obvious-Donut-420"
-
-#Cryptopanic API setup
+# Cryptopanic API setup
 CRYPTOPANIC_API_KEY = "161fd6bd2e6af6880bd3a7db2445f0bc1a617ab2"
 
-def analyze_sentiment(text):
-    blob = TextBlob(text)
-    polarity = blob.sentiment.polarity
-    sentiment = "Positive" if polarity > 0 else "Negative" if polarity < 0 else "Neutral"
-    return sentiment
-
-#Tweet Scraper
-def scrape_tweets(query, limit=100, start_date=None, end_date=None):
+#Data retrieval functions
+def fetch_coindesk_news(limit=10):
     try:
-        date_filter = ""
-        if start_date:
-            date_filter += f" since:{start_date.strftime('%Y-%m-%d')}"
-        if end_date:
-            end_inclusive = end_date + timedelta(days=1)
-            date_filter += f" until:{end_inclusive.strftime('%Y-%m-%d')}"
-    
-        full_query = f"{query} lang:en{date_filter}"
-        tweets = []
-        for i, tweet in enumerate(sntwitter.TwitterSearchScraper(full_query).get_items()):
-            if i >= limit:
-                break
-        tweets.append({
-            "Date": tweet.date,
-            "User": tweet.user.username,
-            "Content": tweet.content
-        })
-    
-    except Exception as e:
-        st.error(f"Error fetching tweets: {e}")
-        return pd.DataFrame(columns=["Date", "User", "Content", "Sentiment"])    
-    
-    df = pd.DataFrame(tweets)
-    if df.empty:
-        return df
-
-    df["Sentiment"] = df["Content"].apply(analyze_sentiment)
-    return df
-  
-
-#Reddit post scraper
-def fetch_reddit_posts(query, limit=100, time_filter="day"):
-    try:
-        reddit = praw.Reddit(
-            client_id=REDDIT_CLIENT_ID,
-            client_secret=REDDIT_CLIENT_SECRET,
-            user_agent=REDDIT_USER_AGENT
-        )
-        subreddit = reddit.subreddit("all")
-        results = []
-
-        for post in subreddit.search(query, sort="relevance", time_filter=time_filter, limit=limit):
-            text = f"{post.title} {post.selftext}"
-            results.append({
-                "Date": pd.to_datetime(post.created_utc, unit='s'),
-                "User": post.author.name if post.author else "[deleted]",
-                "Content": text
-            })
-
-            df = pd.DataFrame(results)
-            if df.empty:
-                return df
-            
-            df["Sentiment"] = df["Content"].apply(analyze_sentiment)
-            return df
-    
-    except Exception as e:
-        st.error(f"Error fetching Reddit posts: {e}")
-        return pd.DataFrame(columns=["Date", "User", "Content", "Sentiment"])
-
-#Setup CryptoPanic scraper
-def fetch_crypto_news(query="", limit=100):
-    try:
-        url = "https://cryptopanic.com/api/v1/posts/"
-        params = {
-            "auth_token": CRYPTOPANIC_API_KEY,
-            "currencies": query.lower(),
-            "public": True
-        }
-
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-
+        url = f"https://api.coindesk.com/v1/news?limit={limit}"
+        response = requests.get(url)
+        response.raise_for_status
+        articles = response.json().get("data", [])
+        # news = [{
+        #     "Title": item["title"],
+        #     "Date": item.get("published_at", datetime.utcnow().isoformat()),
+        #     "URL": item["url"]
+        # } for item in articles]
         news = []
-        for item in data.get("results", [])[:limit]:
-            if item is None:
-                continue #SKIP null or empty results
-            title = item.get("title", "No title")
-            url = item.get("url", "")
-            domain = item.get("domain","CryptoPanic")
-            published = item.get("published_at","")
-
-            content = f"{title} - {url}" if url else title
-
-            news.append({
-                "Date": item["published_at"],
-                "User": item.get("domain", "Cryptopanic"),
-                "Content": item["title"] + " - " + (item.get("url") or "")
-            })
-
-        df = pd.DataFrame(news)
-        if df.empty:
-            return df
-        
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-        df.dropna(subset=["Date"], inplace=True)
-        df["Sentiment"] = df["Content"].apply(analyze_sentiment)
-        return df
-
+        for item in articles:
+             title = item.get("title") or "No title available"
+             date = item.get("published_at", datetime.now(timezone.utc).isoformat())
+             url = item.get("url", "")
+             news.append({"Title": title, "Date": date, "URL": url})
+        return pd.DataFrame(news, columns=["Title", "Date", "URL"])
     except Exception as e:
-        st.error(f"Error fetching CryptoPanic news: {e}")
-        return pd.DataFrame(columns=["Date", "User", "Content", "Sentiment"])
+        st.error(f"Error fetching coindesk news: {e}")
+        return pd.DataFrame(columns=["Title","Date","URL"])
 
-#Charts n shit
-st.title("Social Sentiment Dashboard")
-st.write(f"Analyzing **{query}** from **{source}**...")
+def fetch_altcoinbuzz_news(limit=10):
+        try:
+            url = f"https://altcoinbuzz.io/wp-json/wp/v2/posts?per_page={limit}"
+            response = requests.get(url)
+            response.raise_for_status()
+            articles = response.json()
+            # news = [{
+            #     "Title": item["title"]["rendered"],
+            #     "Date": item["Date"],
+            #     "URL": item["link"]
+            # } for item in articles]
+            news = []
+            for item in articles:
+                 title = item.get("title", {}).get("rendered", "No title available")
+                 date = item.get("date", datetime.now(timezone.utc).isoformat())
+                 url = item.get("link", "")
+                 news.append({"Title": title, "Date": date, "URL": url})
+            return pd.DataFrame(news, columns=["Title", "Date", "URL"])
+        except Exception as e:
+            st.error(f"Error fetching Altcoinbuzz news: {e}")
+            return pd.DataFrame(columns=["Title","Date","URL"])
 
-if query:
-    if source == "Twitter":
-        data = scrape_tweets(query, limit, start_date, end_date)
-    elif source == "Reddit":
-        data = fetch_reddit_posts(query, limit, time_filter)
-    elif source == "Crypto News":
-        data = fetch_crypto_news(query, limit)
-    else:
-        data = pd.DataFrame()
-    
-    if not data.empty:
-        st.success(f"Retrieved {len(data)} posts from {source}.")
-        sentiment_counts = data["Sentiment"].value_counts()
-        st.bar_chart(sentiment_counts)
-        st.dataframe(data)
-    else:
-        st.info("No data available. Try a different keyword or reduce the limit.")
+def fetch_cryptopanic_news(api_key, limit=10):
+        try:
+            url = f"https://cryptopanic.com/api/v1/posts/?auth_token={api_key}&public=true&currencies=bitcoin&filter=latest"
+            response = requests.get(url)
+            response.raise_for_status()
+            articles = response.json().get("results", [])[:limit]
+            # news = [{
+            #      "Title": item["title"],
+            #      "Date": item.get("published_at", datetime.utcnow().isoformat()),
+            #      "URL": item["url"]
+            # } for item in articles]
+            news = []
+            for item in articles:
+                 title = item.get("title") or "No title available"
+                 date = item.get("published_at", datetime.now(timezone.utc).isoformat())
+                 url = item.get("url", "")
+                 news.append({"Title": title, "Date": date, "URL": url})
+            return pd.DataFrame(news, columns=["Title", "Date", "URL"])
+        except Exception as e:
+            st.error(f"Error fetching Cryptopanic news: {e}")
+            return pd.DataFrame(columns=["Title", "Date", "URL"])
+
+#Sentiment analysis bit
+def add_sentiment_scores(df):
+     if "Title" not in df.columns:
+          st.warning("No 'Title' column found for sentiment analysis.")
+          df["Sentiment"] = []
+          return df
+
+     df["Sentiment"] = df["Title"].apply(lambda text: TextBlob(text).sentiment.polarity)
+     return df
+
+#Main app logic
+st.title("Crypto Sentiment Aggregator")
+data = pd.DataFrame()
+
+if source == "CoinDesk":
+     data = fetch_coindesk_news(limit)
+elif source == "AltcoinBuzz":
+     data = fetch_altcoinbuzz_news(limit)
+elif source == "CryptoPanic":
+     if CRYPTOPANIC_API_KEY:
+          data = fetch_cryptopanic_news(CRYPTOPANIC_API_KEY, limit)
+     else:
+          st.warning("CryptoPanic API key not found. Please set it in Streamlit secrets.")
+
+# Date filter
+if not data.empty:
+     data["Date"] = pd.to_datetime(data["Date"], errors="coerce")
+     data["Date"] = data["Date"].dt.tz_localize(None)
+
+     if apply_date_filter and start_date and end_date:
+          start_date = pd.to_datetime(start_date)
+          end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
+          data = data[(data["Date"] >= start_date) & (data["Date"] <= end_date)]
+
+#ANALYZE THE SENTIMENTS!
+# if not data.empty:
+#      data["Sentiment"] = data["Title"].apply(analyze_sentiment)
+#      #Make the pictures!
+#      st.subheader("Sentiment Overview")
+#      chart = alt.Chart(data).mark_bar().encode(
+#          x=alt.X("Sentiment", bin=alt.Bin(maxbins=30), title="Sentiment Score"),
+#          y=alt.Y("count()", title="Number of Articles"),
+#          tooltip=["count()"]
+#     ).properties(
+#          width=600,
+#          height=300
+#     )
+#      st.altair_chart(chart, use_container_width=True)
+
+data = add_sentiment_scores(data)
+
+# Display results!
+if not data.empty:
+     st.dataframe(data)
+     chart = alt.Chart(data).mark_line(point=True).encode(
+          x=alt.X("Date:T", title="Date"),
+          y=alt.Y("Sentiment:Q", title="Sentiment Score"),
+          tooltip=["Date", "Sentiment", "Title"]
+     ).properties(
+          title="Sentiment Over Time",
+          width=700,
+          height=400
+     ).interactive()
+
+     st.altair_chart(chart, use_container_width=True)
 else:
-    st.warning("Please enter a query.")
+     st.info("No news available to display.")
