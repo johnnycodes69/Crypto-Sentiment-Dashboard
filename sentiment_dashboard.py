@@ -30,11 +30,6 @@ def fetch_coindesk_news(limit=10):
         response = requests.get(url)
         response.raise_for_status
         articles = response.json().get("data", [])
-        # news = [{
-        #     "Title": item["title"],
-        #     "Date": item.get("published_at", datetime.utcnow().isoformat()),
-        #     "URL": item["url"]
-        # } for item in articles]
         news = []
         for item in articles:
              title = item.get("title") or "No title available"
@@ -52,11 +47,6 @@ def fetch_altcoinbuzz_news(limit=10):
             response = requests.get(url)
             response.raise_for_status()
             articles = response.json()
-            # news = [{
-            #     "Title": item["title"]["rendered"],
-            #     "Date": item["Date"],
-            #     "URL": item["link"]
-            # } for item in articles]
             news = []
             for item in articles:
                  title = item.get("title", {}).get("rendered", "No title available")
@@ -74,11 +64,6 @@ def fetch_cryptopanic_news(api_key, limit=10):
             response = requests.get(url)
             response.raise_for_status()
             articles = response.json().get("results", [])[:limit]
-            # news = [{
-            #      "Title": item["title"],
-            #      "Date": item.get("published_at", datetime.utcnow().isoformat()),
-            #      "URL": item["url"]
-            # } for item in articles]
             news = []
             for item in articles:
                  title = item.get("title") or "No title available"
@@ -124,20 +109,6 @@ if not data.empty:
           end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1)
           data = data[(data["Date"] >= start_date) & (data["Date"] <= end_date)]
 
-#ANALYZE THE SENTIMENTS!
-# if not data.empty:
-#      data["Sentiment"] = data["Title"].apply(analyze_sentiment)
-#      #Make the pictures!
-#      st.subheader("Sentiment Overview")
-#      chart = alt.Chart(data).mark_bar().encode(
-#          x=alt.X("Sentiment", bin=alt.Bin(maxbins=30), title="Sentiment Score"),
-#          y=alt.Y("count()", title="Number of Articles"),
-#          tooltip=["count()"]
-#     ).properties(
-#          width=600,
-#          height=300
-#     )
-#      st.altair_chart(chart, use_container_width=True)
 
 data = add_sentiment_scores(data)
 
