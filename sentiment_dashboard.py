@@ -4,6 +4,7 @@ import requests
 from datetime import datetime, timedelta, timezone
 from textblob import TextBlob
 import altair as alt
+from atproto import Client
 
 
 #Sidebar Config
@@ -20,10 +21,14 @@ if apply_date_filter:
     start_date = st.sidebar.date_input("Start Date", datetime.today() - timedelta(days=7))
     end_date = st.sidebar.date_input("End Date", datetime.today())
 
-# Cryptopanic API setup
+# Cryptopanic API setup (don't come at me about hardcoding secrets, I know!!)
 CRYPTOPANIC_API_KEY = "161fd6bd2e6af6880bd3a7db2445f0bc1a617ab2"
+# Bluesky setup
+client = Client
+client.login('sentimentanalysis','7pl6-undf-b3s2-hovk')
 
 #Data retrieval functions
+#coindesk
 def fetch_coindesk_news(limit=10):
     try:
         url = f"https://api.coindesk.com/v1/news?limit={limit}"
@@ -40,7 +45,7 @@ def fetch_coindesk_news(limit=10):
     except Exception as e:
         st.error(f"Error fetching coindesk news: {e}")
         return pd.DataFrame(columns=["Title","Date","URL"])
-
+#altcoin buzz
 def fetch_altcoinbuzz_news(limit=10):
         try:
             url = f"https://altcoinbuzz.io/wp-json/wp/v2/posts?per_page={limit}"
@@ -57,7 +62,7 @@ def fetch_altcoinbuzz_news(limit=10):
         except Exception as e:
             st.error(f"Error fetching Altcoinbuzz news: {e}")
             return pd.DataFrame(columns=["Title","Date","URL"])
-
+#cryptopanic
 def fetch_cryptopanic_news(api_key, limit=10):
         try:
             url = f"https://cryptopanic.com/api/v1/posts/?auth_token={api_key}&public=true&currencies=bitcoin&filter=latest"
@@ -74,6 +79,26 @@ def fetch_cryptopanic_news(api_key, limit=10):
         except Exception as e:
             st.error(f"Error fetching Cryptopanic news: {e}")
             return pd.DataFrame(columns=["Title", "Date", "URL"])
+
+#Bluesky
+# def fetch_bluesky_posts(limit=10):
+#      try:
+#           url = f""
+#           results = client.app.bsky.feed.search_posts({'q': 'bitcoin'})
+#           posts = results['posts'] 
+#           news = []
+#           for post in posts:
+#                title = item.get("title") or "No title available"
+#                date = item.get("published_at", datetime.now(timezone.utc).isoformat())
+#                url = item.get("url", "")
+#                news.append({"Title": title, "Date": date, "URL": url})
+#           return pd.DataFrame(news, columns=["Title", "Date", "URL"])
+#      except Exception as e:
+#           st.error(f"Error fetching Cryptopanic news: {e}")
+#           return pd.DataFrame(columns=["Title", "Date", "URL"])
+
+
+
 
 #Sentiment analysis bit
 def add_sentiment_scores(df):
